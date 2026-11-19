@@ -1,0 +1,13 @@
+.env
+__pycache__/
+.venv/
+backend/.runtime-check/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+data/chroma/
+data/app.db
+frontend/node_modules/
+frontend/dist/
+public/
+*.log
