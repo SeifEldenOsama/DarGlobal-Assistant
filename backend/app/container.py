@@ -24,7 +24,11 @@ class AppContainer:
 
     @classmethod
     def build(cls, settings: Settings) -> "AppContainer":
-        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        # Vercel Functions have a read-only application filesystem. The
+        # production pgvector adapter persists exclusively in Supabase, so it
+        # must not attempt to create the local Chroma/SQLite data directory.
+        if settings.vector_store == "chroma":
+            settings.data_dir.mkdir(parents=True, exist_ok=True)
         embedder = _make_embedder(settings)
         vectors: VectorStore
         if settings.vector_store == "pgvector":

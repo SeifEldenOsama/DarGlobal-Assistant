@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.container import AppContainer
 from app.core.config import Settings
 
 
@@ -31,3 +32,26 @@ def test_openrouter_embedding_configuration_accepts_2048_dimensions() -> None:
         embedding_dimension=2048,
     )
     assert settings.embedding_profile.endswith(":2048")
+
+
+def test_pgvector_startup_does_not_create_a_local_data_directory(tmp_path, monkeypatch) -> None:
+    """Vercel's application filesystem is read-only; Supabase needs no local data path."""
+    target = tmp_path / "must-not-be-created"
+    settings = Settings(
+        vector_store="pgvector",
+        database_url="postgresql+psycopg://user:password@host/database",
+        data_dir=target,
+    )
+
+    class FakeVectorStore:
+        pass
+
+    monkeypatch.setattr(
+        "app.infrastructure.vector_store.pgvector_store.PgVectorStore",
+        lambda *_args: FakeVectorStore(),
+    )
+    monkeypatch.setattr("app.container.SqlAlchemyConversationStore", lambda *_args: object())
+
+    AppContainer.build(settings)
+
+    assert not target.exists()
