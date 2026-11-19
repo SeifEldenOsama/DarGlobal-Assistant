@@ -74,15 +74,16 @@ class OpenRouterEmbedder:
             "HTTP-Referer": "https://github.com/your-org/real-estate-ai-assistant",
             "X-Title": "DarGlobal & Wasalt Real Estate Assistant",
         }
-        for attempt in range(3):
+        max_retries = 7
+        for attempt in range(max_retries):
             try:
                 with httpx.Client(base_url=self._base_url, timeout=self._timeout) as client:
                     response = client.request(method, path, json=payload, headers=headers)
                 if response.status_code == 429:
-                    if attempt == 2:
+                    if attempt == max_retries - 1:
                         raise RateLimitError("The embedding model is temporarily rate-limited. Please try again shortly.")
                 elif response.status_code >= 500:
-                    if attempt == 2:
+                    if attempt == max_retries - 1:
                         raise ExternalServiceError("OpenRouter embeddings are temporarily unavailable.")
                 elif response.is_error:
                     raise ExternalServiceError("The embedding request was rejected.")
@@ -92,9 +93,10 @@ class OpenRouterEmbedder:
                         raise ExternalServiceError("OpenRouter returned an invalid embedding response.")
                     return data
             except httpx.HTTPError as error:
-                if attempt == 2:
+                if attempt == max_retries - 1:
                     raise ExternalServiceError("Could not reach OpenRouter for embeddings.") from error
-            time.sleep(0.5 * (2**attempt))
+            backoff = min(2.0 * (2 ** attempt), 30.0)
+            time.sleep(backoff)
         raise ExternalServiceError("OpenRouter embedding request failed.")
 
 

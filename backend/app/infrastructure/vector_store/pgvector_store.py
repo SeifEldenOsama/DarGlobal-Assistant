@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from datetime import datetime, timezone
 
@@ -80,25 +81,43 @@ class PgVectorStore:
                 "ALTER TABLE vector_chunks ALTER COLUMN embedding TYPE vector USING embedding::vector"
             ))
 
+    _EMBED_BATCH_SIZE = 35  # max texts per embedding API call
+    _DB_BATCH_SIZE = 100    # max rows per DB transaction
+    _EMBED_BATCH_DELAY = 1.0  # seconds between embedding batches
+
     def upsert(self, chunks: Sequence[DocumentChunk]) -> int:
         if not chunks:
             return 0
-        embeddings = self._embedder.embed([chunk.text for chunk in chunks])
-        if len(embeddings) != len(chunks) or any(
-            len(embedding) != self._embedding_dimension for embedding in embeddings
-        ):
-            raise ConfigurationError(
-                "The embedding provider returned an unexpected vector dimension. Check EMBEDDING_MODEL and EMBEDDING_DIMENSION."
-            )
-        with self._sessions.begin() as session:
-            for chunk, embedding in zip(chunks, embeddings, strict=True):
-                values = _row_values(chunk, embedding, self._embedding_profile)
-                statement = insert(VectorChunkRow).values(**values)
-                statement = statement.on_conflict_do_update(
-                    index_elements=[VectorChunkRow.chunk_id],
-                    set_={key: value for key, value in values.items() if key != "chunk_id"},
+        # Batch embedding calls to stay within API request-size limits.
+        all_embeddings: list[list[float]] = []
+        texts = [chunk.text for chunk in chunks]
+        for batch_idx, start in enumerate(range(0, len(texts), self._EMBED_BATCH_SIZE)):
+            if batch_idx > 0:
+                time.sleep(self._EMBED_BATCH_DELAY)
+            batch = texts[start : start + self._EMBED_BATCH_SIZE]
+            batch_embeddings = self._embedder.embed(batch)
+            if len(batch_embeddings) != len(batch) or any(
+                len(e) != self._embedding_dimension for e in batch_embeddings
+            ):
+                raise ConfigurationError(
+                    "The embedding provider returned an unexpected vector dimension. "
+                    "Check EMBEDDING_MODEL and EMBEDDING_DIMENSION."
                 )
-                session.execute(statement)
+            all_embeddings.extend(batch_embeddings)
+        # Batch DB writes to avoid long-running transactions that may timeout
+        # on remote connection poolers (e.g. Supabase transaction pooler).
+        pairs = list(zip(chunks, all_embeddings, strict=True))
+        for db_start in range(0, len(pairs), self._DB_BATCH_SIZE):
+            db_batch = pairs[db_start : db_start + self._DB_BATCH_SIZE]
+            with self._sessions.begin() as session:
+                for chunk, embedding in db_batch:
+                    values = _row_values(chunk, embedding, self._embedding_profile)
+                    statement = insert(VectorChunkRow).values(**values)
+                    statement = statement.on_conflict_do_update(
+                        index_elements=[VectorChunkRow.chunk_id],
+                        set_={key: value for key, value in values.items() if key != "chunk_id"},
+                    )
+                    session.execute(statement)
         return len(chunks)
 
     def query(self, question: str, limit: int, minimum_score: float) -> list[RetrievedChunk]:
