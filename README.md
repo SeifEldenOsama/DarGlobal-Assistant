@@ -143,12 +143,12 @@ Tests cover cleaning/canonicalization, semantic chunking and metadata preservati
 
 ## Deployment: Vercel
 
-Deploy this repository as **one Vercel project** from the repository root. The root `vercel.json` builds the Vite frontend into a static `public/` directory and routes `/api/*` to the FastAPI Vercel Function. Both share one public domain, so the browser calls `/api` directly and production CORS configuration is not required for the bundled frontend.
+Deploy this repository as **one Vercel Services project** from the repository root. The root `vercel.json` defines independently built `web` (Vite) and `api` (FastAPI) services and routes `/api/*` to FastAPI while routing every other path to the frontend. Both share one public domain, so the browser calls `/api` directly and production CORS configuration is not required for the bundled frontend.
 
 Vercel's Python runtime supports FastAPI and Python 3.12, but Function filesystems are read-only except for temporary `/tmp` storage. Therefore, production uses one Supabase Postgres database: standard tables persist conversations and its `pgvector` extension persists/query embeddings. It does not use SQLite or local Chroma files. See Vercel's [Python runtime](https://vercel.com/docs/functions/runtimes/python), [filesystem model](https://vercel.com/docs/functions/runtimes), and Supabase's [vector-column documentation](https://supabase.com/docs/guides/ai/vector-columns).
 
 1. Push the repository to GitHub, GitLab, or Bitbucket.
-2. In Vercel, select **Add New → Project**, import the repository, and leave **Root Directory** as the repository root (`.`). Vercel reads the root `vercel.json`; do not select `backend` or `frontend` as the root.
+2. In Vercel, select **Add New → Project**, import the repository, and leave **Root Directory** as the repository root (`.`). Select the **Services** application preset. Vercel reads the root `vercel.json`; do not import `backend` or `frontend` individually.
 3. In Supabase, enable the `vector` extension under **Database → Extensions**. From **Connect**, copy the Transaction Pooler connection string, change its prefix from `postgresql://` to `postgresql+psycopg://`, and remove `?pgbouncer=true` if shown. The application configures Psycopg/PgBouncer compatibility itself.
 4. Add these **Production** environment variables in the Vercel project: `APP_ENV=production`, `LOG_LEVEL=INFO`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL=openrouter/free`, `VECTOR_STORE=pgvector`, and `DATABASE_URL` with that converted Supabase URL. Do not set `DATA_DIR` or `CHROMA_*` values for Vercel.
 5. Deploy. Your frontend is available at `https://YOUR-APP.vercel.app`; the API is available on the same domain at `https://YOUR-APP.vercel.app/api/v1/health`.
