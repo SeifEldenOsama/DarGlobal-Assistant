@@ -6,6 +6,12 @@ from app.application.services.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.domain.entities import Citation, ChatTurn
 from app.domain.ports import ConversationStore, LanguageModel, VectorStore
 
+_ACKNOWLEDGEMENTS = frozenset({
+    "okay", "ok", "okay thanks", "ok thanks", "thanks", "thank you",
+    "thank you so much", "got it", "great", "great thanks", "perfect",
+})
+_GREETINGS = frozenset({"hello", "hi", "hey", "good morning", "good afternoon", "good evening"})
+
 
 @dataclass(frozen=True, slots=True)
 class ChatResult:
@@ -28,6 +34,12 @@ class AnswerQuestion:
         self._history_limit = history_limit
 
     async def execute(self, conversation_id: str, question: str) -> ChatResult:
+        courtesy_reply = _courtesy_reply(question)
+        if courtesy_reply:
+            self._conversations.append(conversation_id, "user", question)
+            self._conversations.append(conversation_id, "assistant", courtesy_reply)
+            return ChatResult(conversation_id, courtesy_reply, [], 0)
+
         retrieved = self._vectors.query(question, self._top_k, self._minimum_score)
         if not retrieved:
             answer = "I couldn't find enough relevant information in the indexed public sources to answer that reliably."
@@ -51,3 +63,13 @@ class AnswerQuestion:
 
     def history(self, conversation_id: str) -> list[ChatTurn]:
         return self._conversations.history(conversation_id, 100)
+
+
+def _courtesy_reply(message: str) -> str | None:
+    """Handle non-research chat locally without inventing source-backed facts."""
+    normalized = " ".join(message.casefold().split()).strip(" .,!?")
+    if normalized in _ACKNOWLEDGEMENTS:
+        return "You're welcome. Ask me about a project, location, amenities, or a publicly published price whenever you're ready."
+    if normalized in _GREETINGS:
+        return "Hello! I can help research publicly indexed project, location, amenity, and published-price information."
+    return None

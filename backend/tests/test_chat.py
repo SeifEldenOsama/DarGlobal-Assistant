@@ -20,7 +20,11 @@ class MemoryConversations:
 
 
 class EmptyVectors:
+    def __init__(self):
+        self.calls = 0
+
     def query(self, *_):
+        self.calls += 1
         return []
 
 
@@ -32,11 +36,31 @@ class NoCallLlm:
 @pytest.mark.asyncio
 async def test_chat_refuses_to_answer_without_grounded_context() -> None:
     conversations = MemoryConversations()
-    use_case = AnswerQuestion(EmptyVectors(), NoCallLlm(), conversations, 5, 0.4, 6)
+    vectors = EmptyVectors()
+    use_case = AnswerQuestion(vectors, NoCallLlm(), conversations, 5, 0.4, 6)
     result = await use_case.execute("abc", "What is the price?")
     assert result.citations == []
     assert "couldn't find" in result.answer
+    assert vectors.calls == 1
     assert len(conversations.items) == 2
+
+
+@pytest.mark.asyncio
+async def test_chat_acknowledgement_skips_retrieval_and_returns_a_courteous_reply() -> None:
+    conversations = MemoryConversations()
+    vectors = EmptyVectors()
+    use_case = AnswerQuestion(vectors, NoCallLlm(), conversations, 5, 0.4, 6)
+
+    result = await use_case.execute("abc", "okay thanks")
+
+    assert result.citations == []
+    assert result.retrieved_count == 0
+    assert result.answer.startswith("You're welcome")
+    assert vectors.calls == 0
+    assert conversations.items == [
+        ("abc", "user", "okay thanks"),
+        ("abc", "assistant", result.answer),
+    ]
 
 
 @pytest.mark.asyncio
