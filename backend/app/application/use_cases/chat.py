@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from app.application.services.prompts import SYSTEM_PROMPT, build_user_prompt
@@ -11,6 +12,13 @@ _ACKNOWLEDGEMENTS = frozenset({
     "thank you so much", "got it", "great", "great thanks", "perfect",
 })
 _GREETINGS = frozenset({"hello", "hi", "hey", "good morning", "good afternoon", "good evening"})
+_REAL_ESTATE_TERMS = frozenset({
+    "aida", "amenities", "amenity", "apartment", "bathroom", "bedroom", "buy", "cost",
+    "dar global", "darglobal", "developer", "golf", "home", "lease", "listing", "location",
+    "penthouse", "pool", "price", "project", "property", "real estate", "rent", "sale", "sell",
+    "square meter", "sqm", "studio", "townhouse", "unit", "villa", "wasalt",
+})
+_INTRODUCTION = re.compile(r"^(?:my name is|call me)\s+(?P<name>[\w][\w' -]{0,48})$", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,11 +42,11 @@ class AnswerQuestion:
         self._history_limit = history_limit
 
     async def execute(self, conversation_id: str, question: str) -> ChatResult:
-        courtesy_reply = _courtesy_reply(question)
-        if courtesy_reply:
+        conversation_reply = _conversation_reply(question)
+        if conversation_reply:
             self._conversations.append(conversation_id, "user", question)
-            self._conversations.append(conversation_id, "assistant", courtesy_reply)
-            return ChatResult(conversation_id, courtesy_reply, [], 0)
+            self._conversations.append(conversation_id, "assistant", conversation_reply)
+            return ChatResult(conversation_id, conversation_reply, [], 0)
 
         retrieved = self._vectors.query(question, self._top_k, self._minimum_score)
         if not retrieved:
@@ -65,11 +73,33 @@ class AnswerQuestion:
         return self._conversations.history(conversation_id, 100)
 
 
-def _courtesy_reply(message: str) -> str | None:
-    """Handle non-research chat locally without inventing source-backed facts."""
-    normalized = " ".join(message.casefold().split()).strip(" .,!?")
+def _conversation_reply(message: str) -> str | None:
+    """Respond warmly to conversation without inventing property information.
+
+    Only questions that are plausibly about real estate reach retrieval. This
+    keeps a source-grounded answer for domain questions with missing evidence,
+    while preventing conversational or unrelated messages from receiving an
+    impersonal RAG fallback.
+    """
+    cleaned = " ".join(message.split()).strip(" .,!?")
+    normalized = cleaned.casefold()
     if normalized in _ACKNOWLEDGEMENTS:
-        return "You're welcome. Ask me about a project, location, amenities, or a publicly published price whenever you're ready."
+        return f"You're welcome. {_SCOPE_INVITATION}"
     if normalized in _GREETINGS:
-        return "Hello! I can help research publicly indexed project, location, amenity, and published-price information."
+        return f"Hello! {_SCOPE_INVITATION}"
+    introduction = _INTRODUCTION.fullmatch(cleaned)
+    if introduction:
+        name = introduction.group("name").strip().title()
+        return f"Nice to meet you, {name}. {_SCOPE_INVITATION}"
+    if not any(term in normalized for term in _REAL_ESTATE_TERMS):
+        return (
+            "I'm focused on source-grounded real-estate research for DarGlobal and Wasalt, "
+            "so I can't help with that topic directly. "
+            f"{_SCOPE_INVITATION}"
+        )
     return None
+
+
+_SCOPE_INVITATION = (
+    "I'm here to help with publicly indexed project, location, amenity, and published-price information."
+)

@@ -64,6 +64,34 @@ async def test_chat_acknowledgement_skips_retrieval_and_returns_a_courteous_repl
 
 
 @pytest.mark.asyncio
+async def test_chat_personal_introduction_is_welcomed_without_retrieval() -> None:
+    conversations = MemoryConversations()
+    vectors = EmptyVectors()
+    use_case = AnswerQuestion(vectors, NoCallLlm(), conversations, 5, 0.4, 6)
+
+    result = await use_case.execute("abc", "my name is seif")
+
+    assert result.answer.startswith("Nice to meet you, Seif.")
+    assert "DarGlobal and Wasalt" not in result.answer
+    assert vectors.calls == 0
+    assert result.citations == []
+
+
+@pytest.mark.asyncio
+async def test_chat_kindly_redirects_an_out_of_scope_request_without_retrieval() -> None:
+    conversations = MemoryConversations()
+    vectors = EmptyVectors()
+    use_case = AnswerQuestion(vectors, NoCallLlm(), conversations, 5, 0.4, 6)
+
+    result = await use_case.execute("abc", "Can you write Python code for me?")
+
+    assert "can't help with that topic directly" in result.answer
+    assert "DarGlobal and Wasalt" in result.answer
+    assert vectors.calls == 0
+    assert result.citations == []
+
+
+@pytest.mark.asyncio
 async def test_openrouter_missing_key_is_configuration_error() -> None:
     model = OpenRouterLanguageModel(None, "openrouter/free", 5)
     with pytest.raises(ConfigurationError):
