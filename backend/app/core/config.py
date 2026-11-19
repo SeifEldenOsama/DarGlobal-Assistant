@@ -25,9 +25,9 @@ class Settings(BaseSettings):
     database_url: str | None = None
     chroma_collection: str = "real_estate_documents"
     vector_store: Literal["chroma", "pgvector"] = "chroma"
-    embedding_dimension: int = Field(default=384, ge=1, le=4096)
-
+    embedding_provider: Literal["sentence_transformer", "openrouter"] = "sentence_transformer"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dimension: int = Field(default=384, ge=1, le=4096)
     chunk_size: int = Field(default=1100, ge=300, le=4000)
     chunk_overlap: int = Field(default=180, ge=0, le=1000)
     retrieval_top_k: int = Field(default=5, ge=1, le=12)
@@ -54,9 +54,16 @@ class Settings(BaseSettings):
     def validate_vector_store_configuration(self) -> "Settings":
         if self.vector_store == "pgvector" and not (self.database_url or "").startswith("postgresql"):
             raise ValueError("VECTOR_STORE=pgvector requires a PostgreSQL DATABASE_URL.")
-        if self.vector_store == "pgvector" and self.embedding_dimension != 384:
-            raise ValueError("VECTOR_STORE=pgvector currently requires EMBEDDING_DIMENSION=384.")
+        if self.embedding_provider == "sentence_transformer" and self.embedding_dimension != 384:
+            raise ValueError(
+                "The local sentence-transformers/all-MiniLM-L6-v2 embedder requires EMBEDDING_DIMENSION=384."
+            )
         return self
+
+    @property
+    def embedding_profile(self) -> str:
+        """Identifies vectors that are safe to compare with the current query vector."""
+        return f"{self.embedding_provider}:{self.embedding_model}:{self.embedding_dimension}"
 
     @property
     def cors_origins(self) -> list[str]:

@@ -9,12 +9,12 @@ import chromadb
 from chromadb.config import Settings as ChromaSettings
 
 from app.domain.entities import DocumentChunk, RetrievedChunk
-from app.infrastructure.embeddings.sentence_transformer import SentenceTransformerEmbedder
+from app.domain.ports import Embedder
 
 
 class ChromaVectorStore:
     def __init__(
-        self, directory: Path, collection_name: str, embedder: SentenceTransformerEmbedder,
+        self, directory: Path, collection_name: str, embedder: Embedder,
     ) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         # Disable optional anonymized telemetry for self-hosted deployments.

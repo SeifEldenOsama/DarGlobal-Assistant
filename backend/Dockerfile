@@ -9,8 +9,8 @@ WORKDIR /app
 RUN addgroup --system app && adduser --system --ingroup app app \
     && mkdir -p /app/data && chown -R app:app /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements.local.txt ./
+RUN pip install --no-cache-dir -r requirements.local.txt
 COPY app ./app
 COPY scripts ./scripts
 RUN chown -R app:app /app

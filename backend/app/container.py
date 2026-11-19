@@ -6,13 +6,13 @@ from app.application.services.chunking import SemanticChunker
 from app.application.use_cases.chat import AnswerQuestion
 from app.application.use_cases.ingest import IngestDocuments
 from app.core.config import Settings
-from app.domain.ports import VectorStore
+from app.core.errors import ConfigurationError
+from app.domain.ports import Embedder, VectorStore
+from app.infrastructure.embeddings.openrouter import OpenRouterEmbedder
 from app.infrastructure.embeddings.sentence_transformer import SentenceTransformerEmbedder
 from app.infrastructure.llm.openrouter import OpenRouterLanguageModel
 from app.infrastructure.persistence.conversations import SqlAlchemyConversationStore
 from app.infrastructure.scrapers.factory import make_scrapers
-from app.infrastructure.vector_store.chroma_store import ChromaVectorStore
-from app.infrastructure.vector_store.pgvector_store import PgVectorStore
 
 
 @dataclass(slots=True)
@@ -25,11 +25,24 @@ class AppContainer:
     @classmethod
     def build(cls, settings: Settings) -> "AppContainer":
         settings.data_dir.mkdir(parents=True, exist_ok=True)
-        embedder = SentenceTransformerEmbedder(settings.embedding_model)
+        embedder = _make_embedder(settings)
         vectors: VectorStore
         if settings.vector_store == "pgvector":
-            vectors = PgVectorStore(settings.resolved_database_url, embedder)
+            from app.infrastructure.vector_store.pgvector_store import PgVectorStore
+
+            vectors = PgVectorStore(
+                settings.resolved_database_url,
+                embedder,
+                settings.embedding_dimension,
+                settings.embedding_profile,
+            )
         else:
+            try:
+                from app.infrastructure.vector_store.chroma_store import ChromaVectorStore
+            except ModuleNotFoundError as error:
+                raise ConfigurationError(
+                    "Chroma is a local-only dependency. Set VECTOR_STORE=pgvector for this deployment."
+                ) from error
             vectors = ChromaVectorStore(settings.chroma_path, settings.chroma_collection, embedder)
         return cls(
             settings=settings,
@@ -51,3 +64,14 @@ class AppContainer:
 
     def scrapers(self):
         return make_scrapers(self.settings)
+
+
+def _make_embedder(settings: Settings) -> Embedder:
+    if settings.embedding_provider == "openrouter":
+        return OpenRouterEmbedder(
+            settings.openrouter_api_key,
+            settings.embedding_model,
+            settings.embedding_dimension,
+            settings.openrouter_timeout_seconds,
+        )
+    return SentenceTransformerEmbedder(settings.embedding_model)

@@ -29,6 +29,8 @@ AnswerQuestion application use case ─ OpenRouter language-model adapter
         │                                   (live model verification + retries)
         ▼
 Vector-store adapter ◄────────────── local Chroma (Docker) / Supabase pgvector (Vercel)
+        ▲                                      ▲
+Sentence Transformers (local)             OpenRouter free embeddings (Vercel)
         ▲
 IngestDocuments use case
         ▲
@@ -41,6 +43,7 @@ Domain entities and ports do not depend on Chroma, SQLAlchemy, HTTPX, or OpenRou
 
 - Python 3.12, FastAPI, Pydantic v2, SQLAlchemy, HTTPX, Beautiful Soup
 - Local `sentence-transformers/all-MiniLM-L6-v2` embeddings; persistent Chroma locally and Supabase Postgres with pgvector in Vercel production
+- A small OpenRouter embedding adapter for Vercel, using the currently available free `nvidia/nemotron-3-embed-1b:free` model at 2,048 dimensions. This avoids packaging PyTorch's multi-gigabyte Linux dependency tree inside a 500 MB Vercel Function.
 - OpenRouter with its verified `openrouter/free` route by default; React 18, TypeScript, Vite, Tailwind, and Lucide
 - Docker Compose for local development and Vercel configurations for production
 
@@ -80,7 +83,7 @@ Copy-Item .env.example .env
 cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements.local.txt
 $env:DATA_DIR = "..\data"
 python -m app.cli ingest --source all
 uvicorn app.main:app --reload --port 8000
@@ -150,9 +153,19 @@ Vercel's Python runtime supports FastAPI and Python 3.12, but Function filesyste
 1. Push the repository to GitHub, GitLab, or Bitbucket.
 2. In Vercel, select **Add New → Project**, import the repository, and leave **Root Directory** as the repository root (`.`). Select the **Services** application preset. Vercel reads the root `vercel.json`; do not import `backend` or `frontend` individually.
 3. In Supabase, enable the `vector` extension under **Database → Extensions**. From **Connect**, copy the Transaction Pooler connection string, change its prefix from `postgresql://` to `postgresql+psycopg://`, and remove `?pgbouncer=true` if shown. The application configures Psycopg/PgBouncer compatibility itself.
-4. Add these **Production** environment variables in the Vercel project: `APP_ENV=production`, `LOG_LEVEL=INFO`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL=openrouter/free`, `VECTOR_STORE=pgvector`, and `DATABASE_URL` with that converted Supabase URL. Do not set `DATA_DIR` or `CHROMA_*` values for Vercel.
+4. Add these **Production** environment variables in the Vercel project: `APP_ENV=production`, `LOG_LEVEL=INFO`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL=openrouter/free`, `VECTOR_STORE=pgvector`, and `DATABASE_URL` with that converted Supabase URL. Also add `EMBEDDING_PROVIDER=openrouter`, `EMBEDDING_MODEL=nvidia/nemotron-3-embed-1b:free`, and `EMBEDDING_DIMENSION=2048`. Do not set `DATA_DIR` or `CHROMA_*` values for Vercel.
 5. Deploy. Your frontend is available at `https://YOUR-APP.vercel.app`; the API is available on the same domain at `https://YOUR-APP.vercel.app/api/v1/health`.
-6. Run ingestion from a trusted local or CI runner configured with `VECTOR_STORE=pgvector` and the same `DATABASE_URL`: `python -m app.cli ingest --source all`. Do not run ingestion inside a Vercel request function; model download/embedding and crawling are unsuitable for request-time serverless work.
+6. Run ingestion from a trusted local or CI runner using the same production embedding configuration, otherwise its vectors cannot be compared to Vercel's query vectors. From `backend/`, load the same `DATABASE_URL` and `OPENROUTER_API_KEY`, then run:
+
+   ```powershell
+   $env:VECTOR_STORE = "pgvector"
+   $env:EMBEDDING_PROVIDER = "openrouter"
+   $env:EMBEDDING_MODEL = "nvidia/nemotron-3-embed-1b:free"
+   $env:EMBEDDING_DIMENSION = "2048"
+   python -m app.cli ingest --source all --rebuild
+   ```
+
+   Do not run ingestion inside a Vercel request function; crawling and batch embedding are unsuitable for request-time serverless work. The pgvector store labels vectors with their model/dimension profile and retrieves only matching vectors, preventing accidental mixing of local and production embedding spaces.
 7. Smoke-test the home page, `/api/v1/health`, an answer with a source citation, and source links before publishing the URL.
 
 Before ingesting, run `python -m scripts.verify_supabase` from `backend/` with those two variables set. It confirms that the connection works and that the `vector` extension is enabled.
@@ -160,6 +173,7 @@ Before ingesting, run `python -m scripts.verify_supabase` from `backend/` with t
 ## Known limitations
 
 - Free-model availability and rate limits change. Configuration, upstream, and rate-limit failures are returned explicitly.
+- Vercel installs `backend/requirements.txt`, which intentionally excludes Chroma, Sentence Transformers, and PyTorch to remain below the Python Function size limit. `backend/requirements.local.txt` supplies those dependencies for local development, tests, Docker, and local-only ingestion.
 - Local Docker uses SQLite and a persistent Chroma directory. Vercel production instead uses Supabase Postgres and pgvector because the function filesystem is not durable.
 - The initial crawl is capped at 25 pages per source. Raise it only after policy and capacity review.
 - Nothing in the product infers prices, property availability, amenities, or investment returns.
