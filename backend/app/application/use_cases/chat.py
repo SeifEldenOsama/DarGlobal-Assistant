@@ -7,10 +7,13 @@ from app.application.services.prompts import SYSTEM_PROMPT, build_user_prompt
 from app.domain.entities import Citation, ChatTurn
 from app.domain.ports import ConversationStore, LanguageModel, VectorStore
 
-_ACKNOWLEDGEMENTS = frozenset({
-    "okay", "ok", "okay thanks", "ok thanks", "thanks", "thank you",
-    "thank you so much", "got it", "great", "great thanks", "perfect",
+_ACKNOWLEDGEMENT_WORDS = frozenset({
+    "all", "alright", "awesome", "good", "got", "great", "helpful", "it", "much",
+    "nice", "okay", "ok", "perfect", "really", "right", "so", "sounds", "sure",
+    "thank", "thanks", "that", "thats", "the", "understood", "very", "was", "well",
+    "you",
 })
+_ACKNOWLEDGEMENT_POSITIVE_WORDS = frozenset({"good", "great", "helpful", "nice", "perfect", "awesome"})
 _GREETINGS = frozenset({"hello", "hi", "hey", "good morning", "good afternoon", "good evening"})
 _REAL_ESTATE_TERMS = frozenset({
     "aida", "amenities", "amenity", "apartment", "bathroom", "bedroom", "buy", "cost",
@@ -82,9 +85,13 @@ def _conversation_reply(message: str) -> str | None:
     impersonal RAG fallback.
     """
     cleaned = " ".join(message.split()).strip(" .,!?")
-    normalized = cleaned.casefold()
-    if normalized in _ACKNOWLEDGEMENTS:
-        return f"You're welcome. {_SCOPE_INVITATION}"
+    normalized = _normalize_conversation_text(cleaned)
+    if _is_acknowledgement(normalized):
+        if "thank" in normalized or "thanks" in normalized:
+            return f"You're welcome! {_SCOPE_INVITATION}"
+        if _ACKNOWLEDGEMENT_POSITIVE_WORDS.intersection(normalized.split()):
+            return f"Glad to hear it! {_SCOPE_INVITATION}"
+        return f"Of course. {_SCOPE_INVITATION}"
     if normalized in _GREETINGS:
         return f"Hello! {_SCOPE_INVITATION}"
     introduction = _INTRODUCTION.fullmatch(cleaned)
@@ -92,12 +99,37 @@ def _conversation_reply(message: str) -> str | None:
         name = introduction.group("name").strip().title()
         return f"Nice to meet you, {name}. {_SCOPE_INVITATION}"
     if not any(term in normalized for term in _REAL_ESTATE_TERMS):
+        if _is_unrelated_request(cleaned):
+            return (
+                "I'd be happy to help where I can, but I can't help with that topic directly. "
+                "My role here is to share information grounded in DarGlobal and Wasalt's public "
+                "real-estate sources, such as their projects, locations, amenities, and published prices."
+            )
         return (
-            "I'm focused on source-grounded real-estate research for DarGlobal and Wasalt, "
-            "so I can't help with that topic directly. "
-            f"{_SCOPE_INVITATION}"
+            "Thanks for sharing that. Whenever you'd like, I'd be glad to help you explore "
+            "DarGlobal and Wasalt projects, locations, amenities, or publicly listed prices."
         )
     return None
+
+
+def _normalize_conversation_text(message: str) -> str:
+    normalized = message.casefold().replace("'", "").replace("’", "")
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", normalized).split())
+
+
+def _is_acknowledgement(normalized: str) -> bool:
+    words = normalized.split()
+    return bool(words) and len(words) <= 8 and set(words).issubset(_ACKNOWLEDGEMENT_WORDS)
+
+
+def _is_unrelated_request(message: str) -> bool:
+    normalized = message.casefold().strip()
+    request_starters = (
+        "can you ", "could you ", "would you ", "how do i ", "how can i ",
+        "what is ", "what are ", "tell me ", "write ", "make ", "give me ",
+        "explain ", "help me ",
+    )
+    return "?" in message or normalized.startswith(request_starters)
 
 
 _SCOPE_INVITATION = (
