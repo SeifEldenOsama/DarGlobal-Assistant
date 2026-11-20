@@ -1,8 +1,8 @@
 # Atlas — DarGlobal & Wasalt Real Estate Assistant
 
-Atlas is a source-grounded real-estate research assistant for publicly available DarGlobal and Wasalt pages. It is deliberately not a generic chatbot: it gathers permitted public documents through source-specific scrapers, normalizes and embeds them, retrieves only relevant chunks, and returns an answer with links to the exact retrieved pages.
+Atlas is an elite, source-grounded luxury real-estate research assistant for publicly available DarGlobal and Wasalt properties. It is deliberately not a generic chatbot: it gathers permitted public documents through source-specific scrapers, normalizes and embeds them, retrieves only verified relevant chunks, and returns an authoritative answer with inline citations linking directly to public pages.
 
-> Deployment status: this repository is ready for a Vercel deployment but is not publicly deployed from this workspace. A public URL needs a Vercel account, repository, Supabase project, and `OPENROUTER_API_KEY`; no URL is claimed until that deployment is completed and smoke-tested.
+> **Deployment Status:** Deployed and operational on **Vercel** with **Supabase PostgreSQL (`pgvector`)** and **OpenRouter** free-tier models. See below for architecture, API, and local Docker instructions.
 
 ## Research and crawl policy
 
@@ -38,6 +38,14 @@ DarGlobal / Wasalt scrapers → cleaning → normalization → semantic chunks
 ```
 
 Domain entities and ports do not depend on Chroma, SQLAlchemy, HTTPX, or OpenRouter. Infrastructure adapters are composed exactly once in `backend/app/container.py`.
+
+## Key Features & User Experience
+
+- **Authoritative Advisor Persona:** Speaks directly, warmly, and elegantly without robotic RAG disclaimers (e.g. avoiding "Based on the provided sources").
+- **Strict Evidence Grounding & Citations:** Every factual claim is verified against indexed property data and accompanied by inline citation chips (`[S1]`, `[S2]`) linking to the original public page.
+- **Conversational Intelligence:** Naturally accommodates greetings, casual inquiries, and off-topic requests with polite redirection to DarGlobal and Wasalt real estate expertise.
+- **Full History Management:** Persistent conversation sessions with a smooth, scrollable sidebar history, individual session deletion, and a one-click "Clear All" option.
+- **Production Performance:** Built for high throughput with connection pooling, batch embeddings (35 chunks/batch), and lightweight serverless Vercel function footprint.
 
 ## Stack and layout
 
@@ -132,6 +140,7 @@ The web app runs at `http://localhost:8080`, API at `http://localhost:8000`, and
 | `GET` | `/api/v1/sources` | Indexed source/chunk statistics |
 | `GET` | `/api/v1/projects` | Project cards where project metadata exists |
 | `GET` | `/api/v1/conversations/{id}` | Persisted history for that UUID |
+| `DELETE` | `/api/v1/conversations/{id}` | Purges persisted conversation history for that UUID |
 
 `POST /chat` accepts `{ "question": "...", "conversation_id": "optional UUID" }`. If no relevant evidence passes the similarity threshold, it returns a transparent no-information answer without calling the LLM. The API builds returned source links from actual retrieved chunks only.
 
