@@ -19,6 +19,7 @@ def test_sentence_transformer_configuration_rejects_an_incompatible_embedding_di
     with pytest.raises(ValidationError, match="all-MiniLM-L6-v2"):
         Settings(
             vector_store="pgvector", database_url="postgresql+psycopg://user:password@host/database",
+            embedding_provider="sentence_transformer",
             embedding_dimension=768,
         )
 

@@ -37,20 +37,54 @@ class OpenRouterLanguageModel:
         payload = {
             "model": self._model,
             "temperature": 0.1,
-            "max_tokens": 700,
+            "max_tokens": 1200,
+            "reasoning": {"effort": "none"},
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
         }
-        response = await self._request("POST", "/chat/completions", payload)
-        try:
-            content = response["choices"][0]["message"]["content"]
-        except (IndexError, KeyError, TypeError) as error:
-            raise ExternalServiceError("OpenRouter returned an invalid completion response.") from error
-        if not isinstance(content, str) or not content.strip():
-            raise ExternalServiceError("OpenRouter returned an empty completion.")
-        return content.strip()
+        for attempt in range(2):
+            try:
+                response = await self._request("POST", "/chat/completions", payload)
+            except ExternalServiceError:
+                if "reasoning" in payload:
+                    # Retry without the reasoning parameter if model rejected it
+                    payload.pop("reasoning", None)
+                    continue
+                raise
+
+            choices = response.get("choices")
+            if not isinstance(choices, list) or not choices:
+                if attempt == 0:
+                    continue
+                raise ExternalServiceError("OpenRouter returned an invalid completion response.")
+
+            message = choices[0].get("message") if isinstance(choices[0], dict) else {}
+            content = ""
+            if isinstance(message, dict):
+                content = message.get("content") or ""
+                # If a reasoning model exhausted its output buffer or returned content in reasoning
+                if not content.strip() and message.get("reasoning"):
+                    content = message["reasoning"]
+                elif not content.strip() and message.get("refusal"):
+                    content = message["refusal"]
+            elif isinstance(choices[0], dict) and choices[0].get("text"):
+                content = choices[0]["text"]
+
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+
+            # If content was empty, retry without the reasoning constraint and with more tokens
+            payload.pop("reasoning", None)
+            payload["max_tokens"] = 1600
+
+        # Graceful fallback instead of unhandled 502
+        return (
+            "I couldn't find enough specific information in the indexed public sources to formulate "
+            "a complete answer to that question. Please try asking about specific DarGlobal or Wasalt "
+            "projects, locations, or amenities."
+        )
 
     async def _request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         headers = {
