@@ -14,14 +14,53 @@ _ACKNOWLEDGEMENT_WORDS = frozenset({
     "you",
 })
 _ACKNOWLEDGEMENT_POSITIVE_WORDS = frozenset({"good", "great", "helpful", "nice", "perfect", "awesome"})
-_GREETINGS = frozenset({"hello", "hi", "hey", "good morning", "good afternoon", "good evening"})
+_GREETINGS = frozenset({"hello", "hi", "hey", "good morning", "good afternoon", "good evening", "howdy", "greetings"})
+_HOW_ARE_YOU = frozenset({
+    "how are you", "how are you doing", "how are things", "how is it going",
+    "hows it going", "how are you today", "how do you do", "how have you been",
+})
+_IDENTITY_QUERIES = frozenset({
+    "who are you", "what are you", "what can you do", "what do you do",
+    "tell me about yourself", "what is atlas", "who is atlas",
+})
 _REAL_ESTATE_TERMS = frozenset({
-    "aida", "amenities", "amenity", "apartment", "bathroom", "bedroom", "buy", "cost",
-    "dar global", "darglobal", "developer", "golf", "home", "lease", "listing", "location",
-    "penthouse", "pool", "price", "project", "property", "real estate", "rent", "sale", "sell",
-    "square meter", "sqm", "studio", "townhouse", "unit", "villa", "wasalt",
+    "aida", "amenities", "amenity", "apartment", "atlas", "bathroom", "bedroom", "buy",
+    "community", "completion", "compound", "cost", "dar global", "darglobal", "developer",
+    "district", "dubai", "estate", "floor", "golf", "handover", "home", "house", "invest",
+    "investing", "investment", "jeddah", "lease", "listing", "location", "luxury", "mansion",
+    "muscat", "neighborhood", "ocean", "oman", "payment", "penthouse", "pool", "price",
+    "project", "property", "qatar", "real estate", "rent", "residence", "residences",
+    "riyadh", "sale", "saudi", "sea", "sell", "square meter", "sqm", "studio", "tower",
+    "townhouse", "unit", "view", "villa", "wasalt",
 })
 _INTRODUCTION = re.compile(r"^(?:my name is|call me)\s+(?P<name>[\w][\w' -]{0,48})$", re.IGNORECASE)
+
+
+def sanitize_response_text(text: str) -> str:
+    if not text:
+        return ""
+    # Strip opening RAG meta-phrases
+    meta_patterns = [
+        r"^(?:Based on the (?:provided|supplied|indexed|available) (?:sources|context|information|documents|records),?\s*)+",
+        r"^(?:According to the (?:provided|supplied|indexed|available) (?:sources|context|information|documents|records),?\s*)+",
+        r"^(?:From the (?:provided|supplied|indexed) (?:sources|context|documents|records),?\s*)+",
+        r"^(?:As per the (?:provided|supplied|indexed) (?:sources|context|documents|records),?\s*)+",
+    ]
+    for pattern in meta_patterns:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+
+    # Clean out quadruple or multiple asterisks (e.g. **** or ***)
+    text = re.sub(r"\*{3,}", "", text)
+
+    # Clean double asterisks used for bold headers to keep plain text clean in UI
+    text = re.sub(r"\*\*([^\*\n]+)\*\*", r"\1", text)
+    text = re.sub(r"\*{2,}", "", text)
+
+    # Capitalize first character if needed
+    stripped = text.strip()
+    if stripped and stripped[0].islower():
+        stripped = stripped[0].upper() + stripped[1:]
+    return stripped
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,14 +92,19 @@ class AnswerQuestion:
 
         retrieved = self._vectors.query(question, self._top_k, self._minimum_score)
         if not retrieved:
-            answer = "I couldn't find enough relevant information in the indexed public sources to answer that reliably."
+            answer = (
+                "I couldn't find verified public details for that specific request in our records right now. "
+                "I'm here to help you explore DarGlobal and Wasalt luxury developments, properties, locations, "
+                "amenities, and published pricing. Please feel free to ask about any specific project or location!"
+            )
             self._conversations.append(conversation_id, "user", question)
             self._conversations.append(conversation_id, "assistant", answer)
             return ChatResult(conversation_id, answer, [], 0)
 
         history = self._conversations.history(conversation_id, self._history_limit)
         prompt = build_user_prompt(question, history, retrieved)
-        answer = await self._llm.generate(SYSTEM_PROMPT, prompt)
+        raw_answer = await self._llm.generate(SYSTEM_PROMPT, prompt)
+        answer = sanitize_response_text(raw_answer)
         citations = [
             Citation(
                 label=f"S{index}", title=item.chunk.title, source_name=item.chunk.source_name,
@@ -74,6 +118,9 @@ class AnswerQuestion:
 
     def history(self, conversation_id: str) -> list[ChatTurn]:
         return self._conversations.history(conversation_id, 100)
+
+    def delete(self, conversation_id: str) -> None:
+        self._conversations.delete(conversation_id)
 
 
 def _conversation_reply(message: str) -> str | None:
@@ -93,7 +140,11 @@ def _conversation_reply(message: str) -> str | None:
             return f"Glad to hear it! {_SCOPE_INVITATION}"
         return f"Of course. {_SCOPE_INVITATION}"
     if normalized in _GREETINGS:
-        return f"Hello! {_SCOPE_INVITATION}"
+        return f"Hello! It's a pleasure to connect with you. {_SCOPE_INVITATION}"
+    if normalized in _HOW_ARE_YOU:
+        return f"I'm doing wonderfully, thank you for asking! {_SCOPE_INVITATION}"
+    if normalized in _IDENTITY_QUERIES:
+        return f"I am Atlas, your luxury real estate assistant. {_SCOPE_INVITATION}"
     introduction = _INTRODUCTION.fullmatch(cleaned)
     if introduction:
         name = introduction.group("name").strip().title()
@@ -106,8 +157,8 @@ def _conversation_reply(message: str) -> str | None:
                 "real-estate sources, such as their projects, locations, amenities, and published prices."
             )
         return (
-            "Thanks for sharing that. Whenever you'd like, I'd be glad to help you explore "
-            "DarGlobal and Wasalt projects, locations, amenities, or publicly listed prices."
+            "I'd be delighted to assist you! Whenever you'd like, I'm here to help you explore "
+            "DarGlobal and Wasalt projects, locations, amenities, and published prices. What would you like to explore?"
         )
     return None
 
@@ -133,5 +184,5 @@ def _is_unrelated_request(message: str) -> bool:
 
 
 _SCOPE_INVITATION = (
-    "I'm here to help with publicly indexed project, location, amenity, and published-price information."
+    "I'm here to assist you with exploring luxury properties, developments, locations, amenities, and published pricing. How can I assist you today?"
 )

@@ -20,11 +20,31 @@ export function useConversation() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(recent.slice(0, 10))); }, [recent]);
+  useEffect(() => { localStorage.setItem(storageKey, JSON.stringify(recent.slice(0, 50))); }, [recent]);
 
   const startNew = useCallback(() => {
     setConversationId(newId()); setMessages([]); setError(null);
   }, []);
+
+  const deleteConversation = useCallback((id: string) => {
+    setRecent(current => current.filter(item => item.id !== id));
+    api.deleteConversation(id).catch(() => {});
+    if (id === conversationId) {
+      setConversationId(newId());
+      setMessages([]);
+      setError(null);
+    }
+  }, [conversationId]);
+
+  const clearAllHistory = useCallback(() => {
+    const ids = recent.map(r => r.id);
+    setRecent([]);
+    localStorage.removeItem(storageKey);
+    ids.forEach(id => api.deleteConversation(id).catch(() => {}));
+    setConversationId(newId());
+    setMessages([]);
+    setError(null);
+  }, [recent]);
 
   const send = useCallback(async (question: string) => {
     const trimmed = question.trim();
@@ -57,6 +77,8 @@ export function useConversation() {
     finally { setLoading(false); }
   }, [conversationId]);
 
-  return useMemo(() => ({ conversationId, messages, recent, loading, error, send, open, startNew }),
-    [conversationId, messages, recent, loading, error, send, open, startNew]);
+  return useMemo(() => ({
+    conversationId, messages, recent, loading, error, send, open, startNew,
+    deleteConversation, clearAllHistory,
+  }), [conversationId, messages, recent, loading, error, send, open, startNew, deleteConversation, clearAllHistory]);
 }

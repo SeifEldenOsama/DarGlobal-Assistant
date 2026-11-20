@@ -18,6 +18,9 @@ class MemoryConversations:
     def append(self, conversation_id, role, content):
         self.items.append((conversation_id, role, content))
 
+    def delete(self, conversation_id):
+        self.items = [(cid, r, c) for cid, r, c in self.items if cid != conversation_id]
+
 
 class EmptyVectors:
     def __init__(self):
@@ -89,6 +92,34 @@ async def test_chat_kindly_redirects_an_out_of_scope_request_without_retrieval()
     assert "DarGlobal and Wasalt" in result.answer
     assert vectors.calls == 0
     assert result.citations == []
+
+
+@pytest.mark.asyncio
+async def test_chat_general_conversations_are_warm_and_inviting() -> None:
+    conversations = MemoryConversations()
+    vectors = EmptyVectors()
+    use_case = AnswerQuestion(vectors, NoCallLlm(), conversations, 5, 0.4, 6)
+
+    result_how = await use_case.execute("abc", "How are you?")
+    assert "doing wonderfully" in result_how.answer
+    assert "I'm here to assist you" in result_how.answer
+    assert vectors.calls == 0
+
+    result_who = await use_case.execute("abc", "Who are you?")
+    assert "I am Atlas" in result_who.answer
+    assert vectors.calls == 0
+
+
+def test_sanitize_response_text_removes_rag_phrases_and_asterisks() -> None:
+    from app.application.use_cases.chat import sanitize_response_text
+
+    raw = "Based on the provided sources, the amenities for AIDA include:\n\n****Features:****\n- **Golf course** [S1]"
+    cleaned = sanitize_response_text(raw)
+    assert not cleaned.startswith("Based on the provided sources")
+    assert cleaned.startswith("The amenities for AIDA include:")
+    assert "****" not in cleaned
+    assert "**" not in cleaned
+    assert "[S1]" in cleaned
 
 
 @pytest.mark.asyncio

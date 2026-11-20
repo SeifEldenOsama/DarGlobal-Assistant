@@ -19,9 +19,17 @@ class FakeSettings:
     app_env = "test"
 
 
+class FakeChatUseCase:
+    def delete(self, conversation_id: str) -> None:
+        pass
+
+
 class FakeContainer:
     vectors = FakeVectors()
     settings = FakeSettings()
+
+    def chat_use_case(self):
+        return FakeChatUseCase()
 
 
 def make_client() -> TestClient:
@@ -40,3 +48,10 @@ def test_health_endpoint_reports_vector_status() -> None:
 def test_chat_rejects_empty_question_before_service_execution() -> None:
     response = make_client().post("/api/v1/chat", json={"question": ""})
     assert response.status_code == 422
+
+
+def test_delete_conversation_returns_no_content() -> None:
+    import uuid
+    conv_id = str(uuid.uuid4())
+    response = make_client().delete(f"/api/v1/conversations/{conv_id}")
+    assert response.status_code == 204

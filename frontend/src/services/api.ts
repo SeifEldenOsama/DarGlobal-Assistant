@@ -13,7 +13,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = (await response.json().catch(() => ({}))) as ApiErrorBody;
     throw new Error(body.error?.message ?? "The service could not complete that request.");
   }
-  return response.json() as Promise<T>;
+  if (response.status === 204) {
+    return undefined as unknown as T;
+  }
+  const text = await response.text();
+  if (!text) {
+    return undefined as unknown as T;
+  }
+  return JSON.parse(text) as T;
 }
 
 export const api = {
@@ -22,4 +29,5 @@ export const api = {
   }),
   sources: () => request<{ sources: SourceStatistic[]; total_chunks: number }>("/sources"),
   conversation: (id: string) => request<{ conversation_id: string; messages: ConversationTurn[] }>(`/conversations/${id}`),
+  deleteConversation: (id: string) => request<void>(`/conversations/${id}`, { method: "DELETE" }),
 };

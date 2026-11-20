@@ -48,6 +48,12 @@ class SqlAlchemyConversationStore:
                 session.add(ConversationRow(id=conversation_id))
             session.add(MessageRow(conversation_id=conversation_id, role=role, content=content))
 
+    def delete(self, conversation_id: str) -> None:
+        with self._sessions.begin() as session:
+            row = session.get(ConversationRow, conversation_id)
+            if row is not None:
+                session.delete(row)
+
 
 def _engine_options(database_url: str) -> dict[str, object]:
     options: dict[str, object] = {

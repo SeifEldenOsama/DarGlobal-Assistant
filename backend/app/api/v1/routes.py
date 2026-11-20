@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 
 from app.application.use_cases.chat import AnswerQuestion
 from app.container import AppContainer
@@ -42,6 +42,12 @@ def conversation(conversation_id: UUID, container: AppContainer = Depends(get_co
         conversation_id=conversation_id,
         messages=[ConversationTurnResponse(role=item.role, content=item.content, created_at=item.created_at) for item in history],
     )
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204, response_class=Response, tags=["chat"])
+def delete_conversation(conversation_id: UUID, container: AppContainer = Depends(get_container)) -> Response:
+    container.chat_use_case().delete(str(conversation_id))
+    return Response(status_code=204)
 
 
 @router.get("/sources", response_model=SourcesResponse, tags=["catalog"])

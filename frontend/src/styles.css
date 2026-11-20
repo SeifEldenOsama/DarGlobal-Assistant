@@ -9,4 +9,19 @@
   body { margin: 0; min-width: 320px; }
   button, textarea { font: inherit; }
   ::selection { background: #cba56566; }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #e2dec9;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #c5be9e;
+  }
 }
